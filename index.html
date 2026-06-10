@@ -82,7 +82,6 @@ body { display: flex; justify-content: center; padding: 12px; }
 .page { display: none; padding: 18px; }
 .page.active { display: block; }
 
-/* Typography — clear hierarchy: 900 only for big display numbers */
 .page-title { font-size: 24px; font-weight: 800; line-height: 1.2; margin-bottom: 4px; }
 .page-sub   { color: var(--text2); font-size: 14px; font-weight: 400; margin-bottom: 18px; }
 
@@ -134,7 +133,6 @@ body { display: flex; justify-content: center; padding: 12px; }
 .cat-card:hover { border-color: var(--main); }
 .cat-card-name  { font-size: 15px; font-weight: 700; }
 .cat-card-count { color: var(--text2); font-size: 12px; font-weight: 400; margin-top: 4px; }
-/* Badge: only shown when > 0 */
 .cat-card-badge {
   position: absolute; top: 10px; right: 10px;
   min-width: 22px; height: 22px; border-radius: 99px;
@@ -296,6 +294,70 @@ input.stock-input.low-border { border-color: var(--red-border); }
 .hist-who    { color: var(--main); font-size: 13px; font-weight: 600; text-align: right; }
 .hist-time   { color: var(--text3); font-size: 11px; margin-top: 2px; text-align: right; }
 
+
+
+/* ── User picker overlay ── */
+#user-picker-overlay {
+  position: absolute; inset: 0; z-index: 120;
+  background: rgba(245,240,232,.96);
+  display: none; align-items: center; justify-content: center;
+  padding: 22px;
+}
+.user-picker-card {
+  width: 100%; max-width: 340px;
+  background: var(--card2);
+  border: 1px solid var(--border);
+  border-radius: 22px;
+  padding: 24px;
+  box-shadow: 0 10px 32px rgba(59,47,32,.12);
+}
+.user-picker-title {
+  font-size: 22px; font-weight: 800;
+  color: var(--text1);
+  margin-bottom: 6px;
+}
+.user-picker-sub {
+  color: var(--text2);
+  font-size: 14px;
+  line-height: 1.5;
+  margin-bottom: 18px;
+}
+.user-picker-btn {
+  width: 100%;
+  background: var(--main);
+  color: #fff;
+  border: 0;
+  border-radius: 14px;
+  padding: 15px;
+  font-size: 17px;
+  font-weight: 800;
+  margin-top: 10px;
+  cursor: pointer;
+}
+.user-picker-btn.secondary {
+  background: var(--card);
+  color: var(--main);
+  border: 1px solid var(--border);
+}
+.topbar-user { cursor: pointer; }
+
+/* ── Loading overlay ── */
+#loading-overlay {
+  position: absolute; inset: 0; z-index: 100;
+  background: var(--bg);
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 14px;
+}
+.loading-spinner {
+  width: 36px; height: 36px;
+  border: 3px solid var(--border);
+  border-top-color: var(--main);
+  border-radius: 50%;
+  animation: spin .7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.loading-text { color: var(--text2); font-size: 14px; font-weight: 500; }
+
 /* ── Responsive: full-bleed on small phones ── */
 @media (max-width: 420px) {
   body { padding: 0; }
@@ -308,10 +370,26 @@ input.stock-input.low-border { border-color: var(--red-border); }
 <body>
 <div class="phone" id="app">
 
+  <!-- User picker overlay -->
+  <div id="user-picker-overlay">
+    <div class="user-picker-card">
+      <div class="user-picker-title">選擇使用者</div>
+      <div class="user-picker-sub">第一次使用請選擇這支手機的使用者。之後修改庫存時，修改紀錄會顯示這個名字。</div>
+      <button class="user-picker-btn" onclick="window.selectUser('Hedy')">Hedy</button>
+      <button class="user-picker-btn secondary" onclick="window.selectUser('Jason')">Jason</button>
+    </div>
+  </div>
+
+  <!-- Loading overlay -->
+  <div id="loading-overlay">
+    <div class="loading-spinner"></div>
+    <div class="loading-text">載入庫存資料…</div>
+  </div>
+
   <!-- Top bar -->
   <div class="topbar">
     <div class="topbar-title">廚房庫存</div>
-    <div class="topbar-user" id="topbar-user">Hedy</div>
+    <div class="topbar-user" id="topbar-user" onclick="window.openUserPicker(true)" title="點擊切換使用者">載入中</div>
   </div>
 
   <div class="content">
@@ -320,14 +398,9 @@ input.stock-input.low-border { border-color: var(--red-border); }
     <div class="page active" id="page-home">
       <div class="page-title">今日狀況</div>
       <div class="page-sub" id="home-sub">載入中…</div>
-
-      <!-- Low stock section (dynamic) -->
       <div id="home-alert-section"></div>
-
-      <!-- Category quick-jump -->
       <div class="section-label">快速盤點</div>
       <div class="cat-grid" id="home-cat-grid"></div>
-
       <button class="btn-main" onclick="switchTab('stocktake')">開始盤點</button>
     </div>
 
@@ -376,95 +449,204 @@ input.stock-input.low-border { border-color: var(--red-border); }
 
 </div><!-- .phone -->
 
-<script>
+<!-- Firebase SDK (modular, CDN) -->
+<script type="module">
+import { initializeApp }                         from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
+import { getFirestore, collection, doc,
+         getDocs, addDoc, updateDoc, deleteDoc,
+         onSnapshot, query, orderBy, limit,
+         serverTimestamp, writeBatch }            from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
+
 /* ════════════════════════════════════════
-   DATA LAYER
-   Replace INVENTORY with Firebase data
-   when connecting to backend.
+   FIREBASE INIT
+════════════════════════════════════════ */
+const firebaseConfig = {
+  apiKey:            'AIzaSyBD3-NfV5U96VremhNsgmfCjpYdnmEPcyY',
+  authDomain:        'kitchen-stock-app-d2111.firebaseapp.com',
+  projectId:         'kitchen-stock-app-d2111',
+  storageBucket:     'kitchen-stock-app-d2111.firebasestorage.app',
+  messagingSenderId: '261351489167',
+  appId:             '1:261351489167:web:74a6868b8cc9d8d3ee3afa',
+};
+const app = initializeApp(firebaseConfig);
+const db  = getFirestore(app);
+
+/* ════════════════════════════════════════
+   CONSTANTS
 ════════════════════════════════════════ */
 const CATEGORIES = ['食材類','醬料類','調味料類','飲品類','湯品類','包材類','餐具類','雜項耗材類'];
 
-const INVENTORY = {
-  '食材類': [
-    {name:'統一肉燥泡麵',  unit:'包', val:55,   reorder:70},
-    {name:'統一脆麵',      unit:'包', val:25,   reorder:20},
-    {name:'Q師傅炒意麵',   unit:'包', val:42,   reorder:40},
-    {name:'竹北米',        unit:'桶', val:0.3,  reorder:0.5},
-    {name:'金媽媽泡菜',    unit:'罐', val:1.2,  reorder:0.7},
-    {name:'起司片',        unit:'包', val:2,    reorder:1},
-    {name:'木耳',          unit:'g',  val:900,  reorder:800},
-    {name:'高麗菜',        unit:'顆', val:1,    reorder:1},
-    {name:'紅蘿蔔絲',      unit:'g',  val:700,  reorder:600},
-    {name:'菠菜',          unit:'包', val:2,    reorder:null},
-    {name:'豬肉細絲',      unit:'g',  val:1200, reorder:1000},
-    {name:'青蔥',          unit:'包', val:2,    reorder:0.5},
-    {name:'檸檬',          unit:'顆', val:4,    reorder:1},
-    {name:'九層塔',        unit:'盒', val:2,    reorder:1},
-  ],
-  '醬料類': [
-    {name:'牛頭牌沙茶醬',                   unit:'罐', val:0.5, reorder:0.3},
-    {name:'台灣辣妹辣椒醬',                 unit:'罐', val:2,   reorder:1},
-    {name:'主婦蠔油',                       unit:'瓶', val:1.5, reorder:1},
-    {name:'Tapiros魚露',                    unit:'瓶', val:2,   reorder:1},
-    {name:'白抽醬油',                       unit:'瓶', val:1,   reorder:0.5},
-    {name:'KIKKOMAN龜甲萬甘醇薄鹽醬油',    unit:'瓶', val:1,   reorder:0.5},
-  ],
-  '調味料類': [
-    {name:'烹大師煎魚調味粉', unit:'包', val:0.5, reorder:0.3},
-    {name:'味王味精',         unit:'盒', val:1,   reorder:0.5},
-    {name:'小磨坊白胡椒鹽',   unit:'盒', val:0.5, reorder:0.3},
-  ],
-  '飲品類': [
-    {name:'泰式奶茶三合一', unit:'包', val:2, reorder:3},
-    {name:'Nestea泰式奶茶', unit:'條', val:3, reorder:5},
-  ],
-  '湯品類': [
-    {name:'味王紫菜湯', unit:'盒', val:4, reorder:3},
-  ],
-  '包材類': [
-    {name:'S號袋',     unit:'包', val:5,   reorder:4},
-    {name:'M號袋',     unit:'包', val:3,   reorder:2},
-    {name:'小牛皮方盒',unit:'條', val:4,   reorder:6},
-    {name:'大牛皮方盒',unit:'條', val:5,   reorder:4},
-    {name:'飲料杯',    unit:'條', val:3,   reorder:4},
-    {name:'圓形湯碗',  unit:'條', val:6,   reorder:4},
-    {name:'辣椒醬小盒',unit:'條', val:5,   reorder:4},
-    {name:'泡菜盒子',  unit:'條', val:3,   reorder:2},
-    {name:'小料袋',    unit:'包', val:0.5, reorder:0.3},
-    {name:'1斤分料袋', unit:'包', val:1,   reorder:0.3},
-  ],
-  '餐具類': [
-    {name:'筷子', unit:'包', val:2, reorder:1},
-    {name:'湯匙', unit:'包', val:2, reorder:1},
-  ],
-  '雜項耗材類': [
-    {name:'膠帶',     unit:'捲', val:3, reorder:2},
-    {name:'廚房紙巾', unit:'捲', val:2, reorder:1},
-  ],
+// Seed data — written to Firestore on first load if collection is empty
+const SEED_ITEMS = [
+  {name:'統一肉燥泡麵',  category:'食材類',  unit:'包', currentStock:0, reorderPoint:70,   sortOrder:1},
+  {name:'統一脆麵',      category:'食材類',  unit:'包', currentStock:0, reorderPoint:20,   sortOrder:2},
+  {name:'Q師傅炒意麵',   category:'食材類',  unit:'包', currentStock:0, reorderPoint:40,   sortOrder:3},
+  {name:'竹北米',        category:'食材類',  unit:'桶', currentStock:0, reorderPoint:0.5,  sortOrder:4},
+  {name:'金媽媽泡菜',    category:'食材類',  unit:'罐', currentStock:0, reorderPoint:0.7,  sortOrder:5},
+  {name:'起司片',        category:'食材類',  unit:'包', currentStock:0, reorderPoint:1,    sortOrder:6},
+  {name:'木耳',          category:'食材類',  unit:'g',  currentStock:0, reorderPoint:800,  sortOrder:7},
+  {name:'高麗菜',        category:'食材類',  unit:'顆', currentStock:0, reorderPoint:1,    sortOrder:8},
+  {name:'紅蘿蔔絲',      category:'食材類',  unit:'g',  currentStock:0, reorderPoint:600,  sortOrder:9},
+  {name:'菠菜',          category:'食材類',  unit:'包', currentStock:0, reorderPoint:null, sortOrder:10},
+  {name:'豬肉細絲',      category:'食材類',  unit:'g',  currentStock:0, reorderPoint:1000, sortOrder:11},
+  {name:'青蔥',          category:'食材類',  unit:'包', currentStock:0, reorderPoint:0.5,  sortOrder:12},
+  {name:'檸檬',          category:'食材類',  unit:'顆', currentStock:0, reorderPoint:1,    sortOrder:13},
+  {name:'九層塔',        category:'食材類',  unit:'盒', currentStock:0, reorderPoint:1,    sortOrder:14},
+  {name:'牛頭牌沙茶醬',              category:'醬料類', unit:'罐', currentStock:0, reorderPoint:0.3, sortOrder:1},
+  {name:'台灣辣妹辣椒醬',            category:'醬料類', unit:'罐', currentStock:0, reorderPoint:1,   sortOrder:2},
+  {name:'主婦蠔油',                  category:'醬料類', unit:'瓶', currentStock:0, reorderPoint:1,   sortOrder:3},
+  {name:'Tapiros魚露',               category:'醬料類', unit:'瓶', currentStock:0, reorderPoint:1,   sortOrder:4},
+  {name:'白抽醬油',                  category:'醬料類', unit:'瓶', currentStock:0, reorderPoint:0.5, sortOrder:5},
+  {name:'KIKKOMAN龜甲萬甘醇薄鹽醬油',category:'醬料類', unit:'瓶', currentStock:0, reorderPoint:0.5, sortOrder:6},
+  {name:'烹大師煎魚調味粉', category:'調味料類', unit:'包', currentStock:0, reorderPoint:0.3, sortOrder:1},
+  {name:'味王味精',         category:'調味料類', unit:'盒', currentStock:0, reorderPoint:0.5, sortOrder:2},
+  {name:'小磨坊白胡椒鹽',   category:'調味料類', unit:'盒', currentStock:0, reorderPoint:0.3, sortOrder:3},
+  {name:'泰式奶茶三合一', category:'飲品類', unit:'包', currentStock:0, reorderPoint:3, sortOrder:1},
+  {name:'Nestea泰式奶茶', category:'飲品類', unit:'條', currentStock:0, reorderPoint:5, sortOrder:2},
+  {name:'味王紫菜湯', category:'湯品類', unit:'盒', currentStock:0, reorderPoint:3, sortOrder:1},
+  {name:'S號袋',      category:'包材類', unit:'包', currentStock:0, reorderPoint:4,   sortOrder:1},
+  {name:'M號袋',      category:'包材類', unit:'包', currentStock:0, reorderPoint:2,   sortOrder:2},
+  {name:'小牛皮方盒', category:'包材類', unit:'條', currentStock:0, reorderPoint:6,   sortOrder:3},
+  {name:'大牛皮方盒', category:'包材類', unit:'條', currentStock:0, reorderPoint:4,   sortOrder:4},
+  {name:'飲料杯',     category:'包材類', unit:'條', currentStock:0, reorderPoint:4,   sortOrder:5},
+  {name:'圓形湯碗',   category:'包材類', unit:'條', currentStock:0, reorderPoint:4,   sortOrder:6},
+  {name:'辣椒醬小盒', category:'包材類', unit:'條', currentStock:0, reorderPoint:4,   sortOrder:7},
+  {name:'泡菜盒子',   category:'包材類', unit:'條', currentStock:0, reorderPoint:2,   sortOrder:8},
+  {name:'小料袋',     category:'包材類', unit:'包', currentStock:0, reorderPoint:0.3, sortOrder:9},
+  {name:'1斤分料袋',  category:'包材類', unit:'包', currentStock:0, reorderPoint:0.3, sortOrder:10},
+  {name:'筷子', category:'餐具類', unit:'包', currentStock:0, reorderPoint:1, sortOrder:1},
+  {name:'湯匙', category:'餐具類', unit:'包', currentStock:0, reorderPoint:1, sortOrder:2},
+  {name:'膠帶',     category:'雜項耗材類', unit:'捲', currentStock:0, reorderPoint:2, sortOrder:1},
+  {name:'廚房紙巾', category:'雜項耗材類', unit:'捲', currentStock:0, reorderPoint:1, sortOrder:2},
+];
+
+/* ════════════════════════════════════════
+   APP STATE
+   INVENTORY: { [category]: [ {id, name, unit, val, reorder, sortOrder} ] }
+   HISTORY:   [ {id, name, from, to, who, time} ]
+════════════════════════════════════════ */
+let INVENTORY = {};
+let HISTORY   = [];
+let CURRENT_USER = localStorage.getItem('kitchen_user') || ''; // 第一次開啟 App 時選擇 Hedy 或 Jason
+
+/* ════════════════════════════════════════
+   USER PICKER
+   No login required. Each phone remembers selected user in localStorage.
+════════════════════════════════════════ */
+function setCurrentUser(user) {
+  CURRENT_USER = user;
+  localStorage.setItem('kitchen_user', user);
+  document.getElementById('topbar-user').textContent = user;
+}
+
+window.selectUser = function(user) {
+  if (user !== 'Hedy' && user !== 'Jason') return;
+  setCurrentUser(user);
+  document.getElementById('user-picker-overlay').style.display = 'none';
 };
 
-// History log (append on save)
-const HISTORY = [
-  {name:'高麗菜',    from:'3 顆',  to:'1 顆',  who:'Hedy',  time:'06/10 22:35'},
-  {name:'統一肉燥泡麵', from:'80 包', to:'55 包', who:'Jason', time:'06/10 22:33'},
-  {name:'竹北米',    from:'1 桶',  to:'0.3 桶', who:'Jason', time:'06/10 22:33'},
-  {name:'小牛皮方盒',from:'8 條',  to:'4 條',  who:'Hedy',  time:'06/10 22:31'},
-  {name:'飲料杯',    from:'6 條',  to:'3 條',  who:'Hedy',  time:'06/09 21:58'},
-  {name:'青蔥',      from:'0.5 包',to:'2 包',  who:'Jason', time:'06/09 21:55'},
-];
+window.openUserPicker = function(force = false) {
+  if (!CURRENT_USER || force) {
+    document.getElementById('user-picker-overlay').style.display = 'flex';
+  }
+};
+
+/* ════════════════════════════════════════
+   SEED: write default items if Firestore empty
+════════════════════════════════════════ */
+async function seedIfEmpty() {
+  const snap = await getDocs(collection(db, 'inventory_items'));
+  if (!snap.empty) return;
+  const batch = writeBatch(db);
+  SEED_ITEMS.forEach(item => {
+    const ref = doc(collection(db, 'inventory_items'));
+    batch.set(ref, { ...item, updatedAt: serverTimestamp(), updatedBy: 'system' });
+  });
+  await batch.commit();
+}
+
+/* ════════════════════════════════════════
+   LOAD: build INVENTORY from Firestore docs
+════════════════════════════════════════ */
+function buildInventoryFromDocs(docs) {
+  const inv = {};
+  CATEGORIES.forEach(c => inv[c] = []);
+  docs.forEach(d => {
+    const data = d.data();
+    const cat  = data.category;
+    if (!inv[cat]) inv[cat] = [];
+    inv[cat].push({
+      id:       d.id,
+      name:     data.name,
+      unit:     data.unit,
+      val:      data.currentStock ?? 0,
+      reorder:  data.reorderPoint ?? null,
+      sortOrder:data.sortOrder ?? 999,
+    });
+  });
+  // Sort each category by sortOrder
+  CATEGORIES.forEach(c => {
+    if (inv[c]) inv[c].sort((a, b) => a.sortOrder - b.sortOrder);
+  });
+  return inv;
+}
+
+/* ════════════════════════════════════════
+   REAL-TIME LISTENERS
+════════════════════════════════════════ */
+function startInventoryListener() {
+  onSnapshot(collection(db, 'inventory_items'), snap => {
+    INVENTORY = buildInventoryFromDocs(snap.docs);
+    refreshAllViews();
+    document.getElementById('loading-overlay').style.display = 'none';
+  }, err => {
+    console.error('Inventory listener error:', err);
+    document.getElementById('loading-overlay').style.display = 'none';
+  });
+}
+
+function startHistoryListener() {
+  const q = query(
+    collection(db, 'stock_history'),
+    orderBy('updatedAt', 'desc'),
+    limit(50)
+  );
+  onSnapshot(q, snap => {
+    HISTORY = snap.docs.map(d => {
+      const data = d.data();
+      const ts   = data.updatedAt?.toDate?.() ?? new Date();
+      const mm   = String(ts.getMonth() + 1).padStart(2, '0');
+      const dd   = String(ts.getDate()).padStart(2, '0');
+      const hh   = String(ts.getHours()).padStart(2, '0');
+      const mi   = String(ts.getMinutes()).padStart(2, '0');
+      return {
+        id:   d.id,
+        name: data.itemName,
+        from: `${data.oldValue} ${data.unit || ''}`.trim(),
+        to:   `${data.newValue} ${data.unit || ''}`.trim(),
+        who:  data.updatedBy,
+        time: `${mm}/${dd} ${hh}:${mi}`,
+      };
+    });
+    // Re-render history if currently visible
+    const histPage = document.getElementById('page-history');
+    if (histPage.classList.contains('active')) renderHistory();
+  });
+}
 
 /* ════════════════════════════════════════
    HELPERS
 ════════════════════════════════════════ */
 function isLow(item) {
-  return item.reorder !== null && Number(item.val) <= Number(item.reorder);
+  return item.reorder !== null && item.reorder !== undefined
+    && Number(item.val) <= Number(item.reorder);
 }
 
 function getAllLow() {
   const result = [];
   CATEGORIES.forEach(cat => {
     (INVENTORY[cat] || []).forEach(item => {
-      if (isLow(item)) result.push({...item, cat});
+      if (isLow(item)) result.push({ ...item, cat });
     });
   });
   return result;
@@ -474,6 +656,16 @@ function getTotalItems() {
   return CATEGORIES.reduce((s, c) => s + (INVENTORY[c] || []).length, 0);
 }
 
+function refreshAllViews() {
+  renderHome();
+  renderReorder();
+  const stockPage = document.getElementById('page-stocktake');
+  if (stockPage.classList.contains('active')) {
+    buildCatTabs();
+    renderStocktake(currentCat);
+  }
+}
+
 /* ════════════════════════════════════════
    RENDER: HOME
 ════════════════════════════════════════ */
@@ -481,14 +673,12 @@ function renderHome() {
   const lowItems = getAllLow();
   const total    = getTotalItems();
 
-  // Sub-title
   document.getElementById('home-sub').innerHTML =
     `共 ${total} 項・` +
     (lowItems.length > 0
       ? `<span style="color:var(--main);font-weight:600">${lowItems.length} 項需補貨</span>`
       : `<span style="color:var(--green);font-weight:600">庫存充足</span>`);
 
-  // Alert section
   const alertEl = document.getElementById('home-alert-section');
   if (lowItems.length === 0) {
     alertEl.innerHTML = `
@@ -514,12 +704,11 @@ function renderHome() {
       </div>`;
   }
 
-  // Category grid — pure text, no emoji, no badge when 0
   const gridEl = document.getElementById('home-cat-grid');
   gridEl.innerHTML = CATEGORIES.filter(cat => (INVENTORY[cat]||[]).length > 0).map(cat => {
-    const items  = INVENTORY[cat];
-    const lowCnt = items.filter(isLow).length;
-    const badge  = lowCnt > 0 ? `<div class="cat-card-badge">${lowCnt}</div>` : '';
+    const items   = INVENTORY[cat];
+    const lowCnt  = items.filter(isLow).length;
+    const badge   = lowCnt > 0 ? `<div class="cat-card-badge">${lowCnt}</div>` : '';
     const lowLine = lowCnt > 0
       ? `<div style="color:var(--primary-dark);font-size:12px;font-weight:700;margin-top:5px">補貨 ${lowCnt} 項</div>`
       : '';
@@ -532,7 +721,6 @@ function renderHome() {
       </div>`;
   }).join('');
 
-  // Nav badge
   const badge = document.getElementById('reorder-badge');
   if (lowItems.length > 0) {
     badge.textContent = lowItems.length;
@@ -551,19 +739,19 @@ function buildCatTabs() {
   const tabs = document.getElementById('cat-tabs');
   tabs.innerHTML = CATEGORIES.filter(c => (INVENTORY[c]||[]).length > 0).map(cat => `
     <button class="cat-tab${cat === currentCat ? ' active' : ''}"
-      data-cat="${cat}" onclick="setActiveCat(this,'${cat}')">${cat}</button>
+      data-cat="${cat}" onclick="window._setActiveCat(this,'${cat}')">${cat}</button>
   `).join('');
 }
 
 function renderStocktake(cat) {
   const items = INVENTORY[cat] || [];
-
   document.getElementById('stocktake-body').innerHTML =
     `<div class="stock-section-head">${cat}・${items.length} 項</div>` +
     items.map((item, idx) => {
       const low     = isLow(item);
-      const thrText = item.reorder !== null ? `補貨門檻：${item.reorder} ${item.unit}` : '不設定補貨提醒';
-      return `<div class="stock-item${low ? ' low' : ''}">
+      const thrText = item.reorder !== null && item.reorder !== undefined
+        ? `補貨門檻：${item.reorder} ${item.unit}` : '不設定補貨提醒';
+      return `<div class="stock-item${low ? ' low' : ''}" data-id="${item.id}">
         <div class="stock-info">
           <div class="stock-name">${item.name}</div>
           <div class="stock-meta">${thrText}</div>
@@ -576,7 +764,10 @@ function renderStocktake(cat) {
             value="${item.val}"
             tabindex="${idx + 1}"
             aria-label="${item.name} 庫存數量"
-            oninput="updateValue('${cat}',${idx},this.value)"
+            data-id="${item.id}"
+            data-cat="${cat}"
+            data-idx="${idx}"
+            oninput="window._onStockInput(this)"
           />
           <div class="stock-unit">${item.unit}</div>
         </div>
@@ -584,34 +775,94 @@ function renderStocktake(cat) {
     }).join('');
 }
 
-function setActiveCat(btn, cat) {
+// Exposed to inline handler
+window._setActiveCat = function(btn, cat) {
   document.querySelectorAll('.cat-tab').forEach(t => t.classList.remove('active'));
   btn.classList.add('active');
   currentCat = cat;
   renderStocktake(cat);
   document.querySelector('.content').scrollTop = 0;
-}
+};
+
+// Debounce timer per item id
+const _debounceTimers = {};
+
+window._onStockInput = function(input) {
+  const id  = input.dataset.id;
+  const cat = input.dataset.cat;
+  const idx = parseInt(input.dataset.idx);
+  const num = input.value === '' ? 0 : Number(input.value);
+  if (isNaN(num)) return;
+
+  // Update local state immediately for responsive UI
+  const item = (INVENTORY[cat] || [])[idx];
+  if (!item || item.id !== id) return;
+  const oldVal = item.val;
+  item.val = num;
+
+  // Update row visual state without re-render
+  const row = input.closest('.stock-item');
+  if (row) {
+    const low = isLow(item);
+    row.classList.toggle('low', low);
+    input.classList.toggle('low-border', low);
+    const warnEl = row.querySelector('.stock-warn');
+    if (low && !warnEl) {
+      const info = row.querySelector('.stock-info');
+      const d = document.createElement('div');
+      d.className = 'stock-warn'; d.textContent = '低於門檻';
+      info.appendChild(d);
+    } else if (!low && warnEl) {
+      warnEl.remove();
+    }
+  }
+
+  renderHome();
+  renderReorder();
+
+  // Debounce Firestore write — wait 800ms after last keystroke
+  clearTimeout(_debounceTimers[id]);
+  _debounceTimers[id] = setTimeout(async () => {
+    try {
+      await updateDoc(doc(db, 'inventory_items', id), {
+        currentStock: num,
+        updatedAt:    serverTimestamp(),
+        updatedBy:    CURRENT_USER || '未選擇',
+      });
+      // Write history only if value actually changed
+      if (num !== oldVal) {
+        await addDoc(collection(db, 'stock_history'), {
+          itemId:    id,
+          itemName:  item.name,
+          unit:      item.unit,
+          oldValue:  oldVal,
+          newValue:  num,
+          updatedAt: serverTimestamp(),
+          updatedBy: CURRENT_USER || '未選擇',
+        });
+      }
+    } catch (e) {
+      console.error('Firestore write error:', e);
+    }
+  }, 800);
+};
 
 /* ════════════════════════════════════════
    RENDER: REORDER
 ════════════════════════════════════════ */
 function renderReorder() {
   const lowItems = getAllLow();
-  const sub = document.getElementById('reorder-sub');
+  const sub  = document.getElementById('reorder-sub');
   const body = document.getElementById('reorder-body');
 
   if (lowItems.length === 0) {
     sub.textContent = '目前無需補貨';
-    body.innerHTML = `
-      <div class="empty-state">
-        <div class="label">所有品項庫存充足</div>
-      </div>`;
+    body.innerHTML  = `<div class="empty-state"><div class="label">所有品項庫存充足</div></div>`;
     return;
   }
 
   sub.textContent = `共 ${lowItems.length} 項需補貨`;
 
-  // Group by category (preserve CATEGORIES order)
   const byCat = {};
   lowItems.forEach(item => {
     if (!byCat[item.cat]) byCat[item.cat] = [];
@@ -634,13 +885,13 @@ function renderReorder() {
   `).join('');
 }
 
-function copyReorder() {
+window.copyReorder = function() {
   const lowItems = getAllLow();
   if (!lowItems.length) { alert('目前無需補貨'); return; }
   const now = new Date().toLocaleDateString('zh-TW');
   const byCat = {};
   lowItems.forEach(i => { (byCat[i.cat] = byCat[i.cat] || []).push(i); });
-  const lines = ['📋 補貨清單', now, ''];
+  const lines = ['補貨清單', now, ''];
   CATEGORIES.filter(c => byCat[c]).forEach(cat => {
     lines.push(`【${cat}】`);
     byCat[cat].forEach(i => lines.push(`・${i.name}（現有 ${i.val} ${i.unit}，門檻 ${i.reorder} ${i.unit}）`));
@@ -649,24 +900,23 @@ function copyReorder() {
   navigator.clipboard?.writeText(lines.join('\n'))
     .then(() => alert('補貨清單已複製到剪貼簿 ✓'))
     .catch(() => alert('複製失敗，請手動截圖'));
-}
+};
 
 /* ════════════════════════════════════════
    RENDER: HISTORY
 ════════════════════════════════════════ */
 function renderHistory() {
+  const bodyEl = document.getElementById('history-body');
   if (!HISTORY.length) {
-    document.getElementById('history-body').innerHTML = `
-      <div class="empty-state"><div class="label">尚無修改紀錄</div></div>`;
+    bodyEl.innerHTML = `<div class="empty-state"><div class="label">尚無修改紀錄</div></div>`;
     return;
   }
-  // Group by date prefix (MM/DD)
   const groups = {};
   HISTORY.forEach(h => {
     const date = h.time.split(' ')[0];
     (groups[date] = groups[date] || []).push(h);
   });
-  document.getElementById('history-body').innerHTML = Object.entries(groups).map(([date, records]) => `
+  bodyEl.innerHTML = Object.entries(groups).map(([date, records]) => `
     <div class="hist-date">${date}</div>
     ${records.map(h => `
       <div class="hist-item">
@@ -687,43 +937,11 @@ function renderHistory() {
 }
 
 /* ════════════════════════════════════════
-   DATA UPDATE
+   SAVE BUTTON
+   (Auto-save happens on input; this button
+    is a visual confirmation for the user)
 ════════════════════════════════════════ */
-function updateValue(cat, index, rawValue) {
-  const num = rawValue === '' ? 0 : Number(rawValue);
-  if (isNaN(num)) return;
-  const item = INVENTORY[cat][index];
-  item.val = num;
-
-  // Re-evaluate low state for this row without full re-render
-  const rows = document.querySelectorAll('.stock-item');
-  const row  = rows[index];
-  if (row) {
-    const low = isLow(item);
-    row.classList.toggle('low', low);
-    const inp = row.querySelector('input');
-    if (inp) inp.classList.toggle('low-border', low);
-    const warnEl = row.querySelector('.stock-warn');
-    if (low && !warnEl) {
-      const info = row.querySelector('.stock-info');
-      const d = document.createElement('div');
-      d.className = 'stock-warn'; d.textContent = '低於門檻';
-      info.appendChild(d);
-    } else if (!low && warnEl) {
-      warnEl.remove();
-    }
-  }
-
-  // Update derived views
-  renderHome();
-  renderReorder();
-}
-
-/* ════════════════════════════════════════
-   SAVE
-════════════════════════════════════════ */
-function doSave() {
-  // In production: batch-write changes to Firebase here
+window.doSave = function() {
   const btn = document.getElementById('save-btn');
   btn.textContent = '✓ 已儲存盤點';
   btn.classList.add('saved');
@@ -731,12 +949,12 @@ function doSave() {
     btn.textContent = '儲存今日盤點';
     btn.classList.remove('saved');
   }, 2200);
-}
+};
 
 /* ════════════════════════════════════════
    TAB ROUTING
 ════════════════════════════════════════ */
-function switchTab(tab, cat) {
+window.switchTab = function(tab, cat) {
   if (cat) currentCat = cat;
   ['home','stocktake','reorder','history'].forEach(t => {
     document.getElementById('page-' + t).classList.toggle('active', t === tab);
@@ -745,25 +963,29 @@ function switchTab(tab, cat) {
   document.getElementById('save-bar').style.display = tab === 'stocktake' ? 'block' : 'none';
 
   if (tab === 'stocktake') {
-    // Sync active tab button
-    document.querySelectorAll('.cat-tab').forEach(b =>
-      b.classList.toggle('active', b.dataset.cat === currentCat));
+    buildCatTabs();
     renderStocktake(currentCat);
   }
   if (tab === 'reorder') renderReorder();
   if (tab === 'history') renderHistory();
   document.querySelector('.content').scrollTop = 0;
-}
+};
 
 /* ════════════════════════════════════════
    INIT
 ════════════════════════════════════════ */
-buildCatTabs();
-renderHome();
-renderStocktake(currentCat);
-renderReorder();
-renderHistory();
+document.getElementById('topbar-user').textContent = CURRENT_USER || '選擇使用者';
+window.openUserPicker(false);
+
+(async () => {
+  await seedIfEmpty();
+  startInventoryListener();
+  startHistoryListener();
+})();
+
 </script>
+
+<!-- Service Worker -->
 <script>
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
