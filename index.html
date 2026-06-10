@@ -223,6 +223,33 @@ input.stock-input::-webkit-inner-spin-button,
 input.stock-input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
 input.stock-input.low-border { border-color: var(--red-border); }
 .stock-unit { color: var(--text2); font-size: 14px; font-weight: 600; white-space: nowrap; min-width: 20px; }
+.receive-current {
+  color: var(--text3);
+  font-size: 12px;
+  font-weight: 400;
+  margin-top: 4px;
+}
+.receive-input {
+  width: 72px; min-width: 72px; max-width: 72px;
+  height: 48px;
+  background: #fff;
+  border: 1.5px solid var(--border);
+  border-radius: 10px;
+  color: var(--text1);
+  font-size: 20px;
+  font-weight: 700;
+  text-align: center;
+  padding: 4px;
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+.receive-input:focus {
+  outline: none;
+  border-color: var(--main);
+  box-shadow: 0 0 0 3px rgba(170,94,57,.12);
+}
+.receive-input::-webkit-inner-spin-button,
+.receive-input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
 
 /* ── Save bar ── */
 .save-bar {
@@ -413,6 +440,15 @@ input.stock-input.low-border { border-color: var(--red-border); }
       <div style="height:96px"></div>
     </div>
 
+    <!-- ═══ RECEIVE ═══ -->
+    <div class="page" id="page-receive">
+      <div class="page-title">進貨</div>
+      <div class="page-sub">輸入本次進貨數量，儲存後會自動加到目前庫存</div>
+      <div class="cat-tabs" id="receive-cat-tabs"></div>
+      <div id="receive-body"></div>
+      <div style="height:96px"></div>
+    </div>
+
     <!-- ═══ REORDER ═══ -->
     <div class="page" id="page-reorder">
       <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:4px;gap:10px">
@@ -439,11 +475,17 @@ input.stock-input.low-border { border-color: var(--red-border); }
     <button class="btn-save" id="save-btn" onclick="doSave()">儲存今日盤點</button>
   </div>
 
+  <!-- Receive save bar (receive only) -->
+  <div class="save-bar" id="receive-save-bar" style="display:none">
+    <button class="btn-save" id="receive-save-btn" onclick="saveReceive()">儲存進貨</button>
+  </div>
+
   <!-- Bottom nav -->
   <nav class="bottomnav">
     <button class="navbtn active" id="nav-home"      onclick="switchTab('home')">      <span class="navbtn-icon">⊞</span><span>首頁</span></button>
     <button class="navbtn"        id="nav-stocktake" onclick="switchTab('stocktake')"> <span class="navbtn-icon">≡</span><span>盤點</span></button>
-    <button class="navbtn"        id="nav-reorder"   onclick="switchTab('reorder')">   <span class="navbtn-icon">!</span><span>補貨清單</span><span class="badge" id="reorder-badge" style="display:none"></span></button>
+    <button class="navbtn"        id="nav-receive"   onclick="switchTab('receive')">   <span class="navbtn-icon">＋</span><span>進貨</span></button>
+    <button class="navbtn"        id="nav-reorder"   onclick="switchTab('reorder')">   <span class="navbtn-icon">!</span><span>補貨</span><span class="badge" id="reorder-badge" style="display:none"></span></button>
     <button class="navbtn"        id="nav-history"   onclick="switchTab('history')">   <span class="navbtn-icon">◷</span><span>紀錄</span></button>
   </nav>
 
@@ -518,6 +560,7 @@ const SEED_ITEMS = [
   {name:'湯匙', category:'餐具類', unit:'包', currentStock:0, reorderPoint:1, sortOrder:2},
   {name:'膠帶',     category:'雜項耗材類', unit:'捲', currentStock:0, reorderPoint:2, sortOrder:1},
   {name:'廚房紙巾', category:'雜項耗材類', unit:'捲', currentStock:0, reorderPoint:1, sortOrder:2},
+  {name:'感熱紙',   category:'雜項耗材類', unit:'捲', currentStock:0, reorderPoint:1, sortOrder:3},
 ];
 
 /* ════════════════════════════════════════
@@ -556,9 +599,20 @@ window.openUserPicker = function(force = false) {
 ════════════════════════════════════════ */
 async function seedIfEmpty() {
   const snap = await getDocs(collection(db, 'inventory_items'));
-  if (!snap.empty) return;
+  const existingKeys = new Set();
+  snap.forEach(d => {
+    const data = d.data();
+    existingKeys.add(`${data.category}::${data.name}`);
+  });
+
+  const missingItems = SEED_ITEMS.filter(item =>
+    !existingKeys.has(`${item.category}::${item.name}`)
+  );
+
+  if (missingItems.length === 0) return;
+
   const batch = writeBatch(db);
-  SEED_ITEMS.forEach(item => {
+  missingItems.forEach(item => {
     const ref = doc(collection(db, 'inventory_items'));
     batch.set(ref, { ...item, updatedAt: serverTimestamp(), updatedBy: 'system' });
   });
@@ -620,12 +674,15 @@ function startHistoryListener() {
       const hh   = String(ts.getHours()).padStart(2, '0');
       const mi   = String(ts.getMinutes()).padStart(2, '0');
       return {
-        id:   d.id,
-        name: data.itemName,
-        from: `${data.oldValue} ${data.unit || ''}`.trim(),
-        to:   `${data.newValue} ${data.unit || ''}`.trim(),
-        who:  data.updatedBy,
-        time: `${mm}/${dd} ${hh}:${mi}`,
+        id:     d.id,
+        name:   data.itemName,
+        from:   `${data.oldValue} ${data.unit || ''}`.trim(),
+        to:     `${data.newValue} ${data.unit || ''}`.trim(),
+        who:    data.updatedBy,
+        time:   `${mm}/${dd} ${hh}:${mi}`,
+        type:   data.changeType || '盤點',
+        amount: data.changeAmount,
+        unit:   data.unit || '',
       };
     });
     // Re-render history if currently visible
@@ -663,6 +720,11 @@ function refreshAllViews() {
   if (stockPage.classList.contains('active')) {
     buildCatTabs();
     renderStocktake(currentCat);
+  }
+  const receivePage = document.getElementById('page-receive');
+  if (receivePage.classList.contains('active')) {
+    buildReceiveCatTabs();
+    renderReceive(currentReceiveCat);
   }
 }
 
@@ -734,6 +796,7 @@ function renderHome() {
    RENDER: STOCKTAKE
 ════════════════════════════════════════ */
 let currentCat = '食材類';
+let currentReceiveCat = '食材類';
 
 function buildCatTabs() {
   const tabs = document.getElementById('cat-tabs');
@@ -832,19 +895,142 @@ window._onStockInput = function(input) {
       // Write history only if value actually changed
       if (num !== oldVal) {
         await addDoc(collection(db, 'stock_history'), {
-          itemId:    id,
-          itemName:  item.name,
-          unit:      item.unit,
-          oldValue:  oldVal,
-          newValue:  num,
-          updatedAt: serverTimestamp(),
-          updatedBy: CURRENT_USER || '未選擇',
+          itemId:       id,
+          itemName:     item.name,
+          unit:         item.unit,
+          oldValue:     oldVal,
+          newValue:     num,
+          changeAmount: num - oldVal,
+          changeType:   '盤點',
+          updatedAt:    serverTimestamp(),
+          updatedBy:    CURRENT_USER || '未選擇',
         });
       }
     } catch (e) {
       console.error('Firestore write error:', e);
     }
   }, 800);
+};
+
+/* ════════════════════════════════════════
+   RENDER: RECEIVE
+════════════════════════════════════════ */
+function buildReceiveCatTabs() {
+  const tabs = document.getElementById('receive-cat-tabs');
+  tabs.innerHTML = CATEGORIES.filter(c => (INVENTORY[c]||[]).length > 0).map(cat => `
+    <button class="cat-tab${cat === currentReceiveCat ? ' active' : ''}"
+      data-cat="${cat}" onclick="window._setActiveReceiveCat(this,'${cat}')">${cat}</button>
+  `).join('');
+}
+
+function renderReceive(cat) {
+  const items = INVENTORY[cat] || [];
+  document.getElementById('receive-body').innerHTML =
+    `<div class="stock-section-head">${cat}・${items.length} 項</div>` +
+    items.map((item, idx) => {
+      const low = isLow(item);
+      const thrText = item.reorder !== null && item.reorder !== undefined
+        ? `補貨門檻：${item.reorder} ${item.unit}` : '不設定補貨提醒';
+      return `<div class="stock-item${low ? ' low' : ''}" data-id="${item.id}">
+        <div class="stock-info">
+          <div class="stock-name">${item.name}</div>
+          <div class="receive-current">目前庫存：${item.val} ${item.unit}</div>
+          <div class="stock-meta">${thrText}</div>
+        </div>
+        <div class="stock-right">
+          <input
+            type="number" inputmode="decimal" step="0.1" min="0"
+            class="receive-input"
+            placeholder="0"
+            data-id="${item.id}"
+            data-cat="${cat}"
+            data-idx="${idx}"
+            aria-label="${item.name} 進貨數量"
+          />
+          <div class="stock-unit">${item.unit}</div>
+        </div>
+      </div>`;
+    }).join('');
+}
+
+window._setActiveReceiveCat = function(btn, cat) {
+  document.querySelectorAll('#receive-cat-tabs .cat-tab').forEach(t => t.classList.remove('active'));
+  btn.classList.add('active');
+  currentReceiveCat = cat;
+  renderReceive(cat);
+  document.querySelector('.content').scrollTop = 0;
+};
+
+window.saveReceive = async function() {
+  const btn = document.getElementById('receive-save-btn');
+  const inputs = Array.from(document.querySelectorAll('#receive-body .receive-input'));
+  const changes = [];
+
+  inputs.forEach(input => {
+    const amount = input.value === '' ? 0 : Number(input.value);
+    if (isNaN(amount) || amount <= 0) return;
+
+    const cat = input.dataset.cat;
+    const idx = parseInt(input.dataset.idx);
+    const id  = input.dataset.id;
+    const item = (INVENTORY[cat] || [])[idx];
+
+    if (!item || item.id !== id) return;
+
+    const oldVal = Number(item.val) || 0;
+    const newVal = oldVal + amount;
+
+    changes.push({ item, id, oldVal, amount, newVal, input });
+  });
+
+  if (!changes.length) {
+    alert('請先輸入進貨數量');
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = '儲存中…';
+
+  try {
+    for (const change of changes) {
+      await updateDoc(doc(db, 'inventory_items', change.id), {
+        currentStock: change.newVal,
+        updatedAt:    serverTimestamp(),
+        updatedBy:    CURRENT_USER || '未選擇',
+      });
+
+      await addDoc(collection(db, 'stock_history'), {
+        itemId:       change.id,
+        itemName:     change.item.name,
+        unit:         change.item.unit,
+        oldValue:     change.oldVal,
+        newValue:     change.newVal,
+        changeAmount: change.amount,
+        changeType:   '進貨',
+        updatedAt:    serverTimestamp(),
+        updatedBy:    CURRENT_USER || '未選擇',
+      });
+    }
+
+    inputs.forEach(input => input.value = '');
+    btn.textContent = `✓ 已儲存 ${changes.length} 項進貨`;
+    btn.classList.add('saved');
+    renderHome();
+    renderReorder();
+    renderReceive(currentReceiveCat);
+
+    setTimeout(() => {
+      btn.textContent = '儲存進貨';
+      btn.classList.remove('saved');
+      btn.disabled = false;
+    }, 2200);
+  } catch (e) {
+    console.error('Receive save error:', e);
+    alert('進貨儲存失敗，請稍後再試');
+    btn.textContent = '儲存進貨';
+    btn.classList.remove('saved');
+    btn.disabled = false;
+  }
 };
 
 /* ════════════════════════════════════════
@@ -927,6 +1113,7 @@ function renderHistory() {
             <span>→</span>
             <span class="hist-new">${h.to}</span>
           </div>
+          ${h.type === '進貨' ? `<div class="stock-meta" style="color:var(--main);font-weight:700">進貨 +${h.amount} ${h.unit}</div>` : ''}
         </div>
         <div>
           <div class="hist-who">${h.who}</div>
@@ -955,16 +1142,24 @@ window.doSave = function() {
    TAB ROUTING
 ════════════════════════════════════════ */
 window.switchTab = function(tab, cat) {
-  if (cat) currentCat = cat;
-  ['home','stocktake','reorder','history'].forEach(t => {
+  if (cat) {
+    currentCat = cat;
+    currentReceiveCat = cat;
+  }
+  ['home','stocktake','receive','reorder','history'].forEach(t => {
     document.getElementById('page-' + t).classList.toggle('active', t === tab);
     document.getElementById('nav-'  + t).classList.toggle('active', t === tab);
   });
   document.getElementById('save-bar').style.display = tab === 'stocktake' ? 'block' : 'none';
+  document.getElementById('receive-save-bar').style.display = tab === 'receive' ? 'block' : 'none';
 
   if (tab === 'stocktake') {
     buildCatTabs();
     renderStocktake(currentCat);
+  }
+  if (tab === 'receive') {
+    buildReceiveCatTabs();
+    renderReceive(currentReceiveCat);
   }
   if (tab === 'reorder') renderReorder();
   if (tab === 'history') renderHistory();
