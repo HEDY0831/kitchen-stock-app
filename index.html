@@ -3,6 +3,17 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+
+<!-- PWA -->
+<link rel="manifest" href="/kitchen-stock-app/manifest.json">
+<meta name="theme-color" content="#AA5E39">
+
+<!-- iPhone / iPad PWA -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="廚房庫存">
+<link rel="apple-touch-icon" href="/kitchen-stock-app/icons/icon-192.png">
+
 <title>廚房庫存</title>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
@@ -752,6 +763,15 @@ renderHome();
 renderStocktake(currentCat);
 renderReorder();
 renderHistory();
+</script>
+<script>
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/kitchen-stock-app/service-worker.js')
+      .then(reg => console.log('SW registered:', reg.scope))
+      .catch(err => console.log('SW failed:', err));
+  });
+}
 </script>
 </body>
 </html>
