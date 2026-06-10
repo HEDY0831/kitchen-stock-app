@@ -1,0 +1,757 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<title>廚房庫存</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+:root {
+  --bg:        #F5F0E8;
+  --bg2:       #EDE7DB;
+  --card:      #FDF9F4;
+  --card2:     #FFFDF9;
+  --border:    #D6CCBC;
+  --text1:     #3B2F20;
+  --text2:     #7A6650;
+  --text3:     #A8957E;
+  --primary:      #AA5E39;
+  --primary-dark: #8A4B2D;
+  --primary-light:#FFB693;
+  --main:      #AA5E39;
+  --main-dark: #8A4B2D;
+  --main-light:#FFB693;
+  --red:       #AA5E39;
+  --red-bg:    #FFB693;
+  --red-border:#D4845A;
+  --green:     #5A8A5A;
+}
+
+html, body {
+  width: 100%; min-height: 100%;
+  background: var(--bg);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans TC", Arial, sans-serif;
+  color: var(--text1);
+}
+body { display: flex; justify-content: center; padding: 12px; }
+
+/* ── Phone shell ── */
+.phone {
+  width: 100%; max-width: 430px; min-height: 820px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 28px;
+  overflow: hidden;
+  position: relative;
+  box-shadow: 0 8px 30px rgba(59,47,32,.08);
+}
+
+/* ── Top bar ── */
+.topbar {
+  height: 52px;
+  background: rgba(253,249,244,.94);
+  border-bottom: 1px solid var(--border);
+  padding: 0 18px;
+  display: flex; align-items: center; justify-content: space-between;
+  position: sticky; top: 0; z-index: 20;
+  backdrop-filter: blur(8px);
+}
+.topbar-title { font-size: 16px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+.topbar-user  { font-size: 14px; font-weight: 600; color: var(--main); }
+
+/* ── Scrollable content ── */
+.content {
+  height: calc(820px - 52px);
+  overflow-y: auto;
+  padding-bottom: 84px;
+  scroll-behavior: smooth;
+}
+
+/* ── Pages ── */
+.page { display: none; padding: 18px; }
+.page.active { display: block; }
+
+/* Typography — clear hierarchy: 900 only for big display numbers */
+.page-title { font-size: 24px; font-weight: 800; line-height: 1.2; margin-bottom: 4px; }
+.page-sub   { color: var(--text2); font-size: 14px; font-weight: 400; margin-bottom: 18px; }
+
+/* ── Section cards ── */
+.section-card {
+  background: var(--card2);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 16px;
+  margin-bottom: 14px;
+}
+.section-card.alert {
+  border-color: var(--red-border);
+  background: var(--red-bg);
+}
+.section-title {
+  display: flex; align-items: center; justify-content: space-between;
+  font-size: 16px; font-weight: 700; color: var(--main);
+  margin-bottom: 12px;
+}
+.section-title span:first-child { display: flex; align-items: center; gap: 6px; }
+.pill-count {
+  min-width: 26px; height: 26px; border-radius: 99px;
+  background: var(--main); color: #fff;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 13px; font-weight: 700;
+}
+
+/* ── Low stock rows (homepage list) ── */
+.list-line {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 9px 0;
+  border-bottom: 1px solid rgba(214,204,188,.6);
+}
+.list-line:last-child { border-bottom: 0; padding-bottom: 0; }
+.list-name { font-size: 15px; font-weight: 600; min-width: 0; overflow-wrap: anywhere; flex: 1; }
+.list-val  { font-size: 15px; font-weight: 700; color: var(--main); white-space: nowrap; margin-left: 10px; }
+.list-thr  { color: var(--text3); font-size: 11px; font-weight: 400; margin-left: 5px; }
+
+/* ── Category grid (homepage) ── */
+.section-label { font-size: 14px; font-weight: 700; color: var(--text1); margin-bottom: 10px; }
+.cat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 14px; }
+.cat-card {
+  background: var(--card2); border: 1px solid var(--border);
+  border-radius: 14px; padding: 14px 12px;
+  cursor: pointer; min-height: 80px; position: relative;
+  transition: border-color .15s;
+}
+.cat-card:hover { border-color: var(--main); }
+.cat-card-name  { font-size: 15px; font-weight: 700; }
+.cat-card-count { color: var(--text2); font-size: 12px; font-weight: 400; margin-top: 4px; }
+/* Badge: only shown when > 0 */
+.cat-card-badge {
+  position: absolute; top: 10px; right: 10px;
+  min-width: 22px; height: 22px; border-radius: 99px;
+  background: var(--main); color: #fff;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: 700;
+}
+
+/* ── Buttons ── */
+button { font-family: inherit; }
+.btn-main, .btn-save {
+  width: 100%;
+  background: var(--main); color: #fff;
+  font-size: 16px; font-weight: 700;
+  border: 0; border-radius: 14px; padding: 15px;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(170,94,57,.2);
+  transition: background .15s;
+}
+.btn-main:hover, .btn-save:hover { background: var(--main-dark); }
+.btn-outline {
+  background: var(--card2); border: 1px solid var(--border);
+  color: var(--text2); font-size: 13px; font-weight: 600;
+  border-radius: 10px; padding: 8px 12px; cursor: pointer;
+}
+
+/* ── Stocktake: category tabs (2-col grid) ── */
+.cat-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  padding: 2px 0 14px;
+}
+.cat-tab {
+  padding: 11px 8px; border-radius: 12px;
+  font-size: 14px; font-weight: 600; cursor: pointer;
+  border: 1px solid var(--border);
+  background: var(--card2); color: var(--text2);
+  text-align: center;
+  transition: background .15s, color .15s;
+}
+.cat-tab.active { background: var(--main); color: #fff; border-color: var(--main); }
+
+/* ── Stocktake: section header ── */
+.stock-section-head {
+  font-size: 13px; font-weight: 600; color: var(--text3);
+  padding: 4px 0 10px;
+}
+
+/* ── Stocktake: item card ── */
+#stocktake-body { width: 100%; }
+.stock-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: var(--card2); border: 1px solid var(--border);
+  border-radius: 14px; padding: 14px 14px; margin-bottom: 8px;
+  transition: border-color .15s, background .15s;
+}
+.stock-item.low { background: var(--red-bg); border-color: var(--red-border); }
+.stock-info { flex: 1; min-width: 0; }
+.stock-name {
+  color: var(--text1); font-size: 15px; font-weight: 600;
+  line-height: 1.35; word-break: keep-all; overflow-wrap: anywhere;
+}
+.stock-meta { color: var(--text3); font-size: 12px; font-weight: 400; margin-top: 4px; }
+.stock-warn { color: var(--primary-dark); font-size: 12px; font-weight: 700; margin-top: 4px; }
+.stock-right {
+  display: flex; align-items: center; gap: 6px; flex-shrink: 0;
+}
+input.stock-input {
+  width: 72px; min-width: 72px; max-width: 72px;
+  height: 48px;
+  background: #fff; border: 1.5px solid var(--border);
+  border-radius: 10px; color: var(--text1);
+  font-size: 20px; font-weight: 700;
+  text-align: center; padding: 4px 4px;
+  appearance: textfield; -moz-appearance: textfield;
+  transition: border-color .15s;
+}
+input.stock-input:focus {
+  outline: none; border-color: var(--main);
+  box-shadow: 0 0 0 3px rgba(170,94,57,.12);
+}
+input.stock-input::-webkit-inner-spin-button,
+input.stock-input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+input.stock-input.low-border { border-color: var(--red-border); }
+.stock-unit { color: var(--text2); font-size: 14px; font-weight: 600; white-space: nowrap; min-width: 20px; }
+
+/* ── Save bar ── */
+.save-bar {
+  position: absolute; bottom: 58px; left: 0; right: 0;
+  padding: 10px 18px 12px;
+  background: var(--bg);
+  z-index: 12;
+}
+.btn-save.saved { background: var(--green); box-shadow: none; }
+
+/* ── Bottom nav ── */
+.bottomnav {
+  position: absolute; bottom: 0; left: 0; right: 0; height: 58px;
+  background: rgba(253,249,244,.96);
+  border-top: 1px solid var(--border);
+  display: flex; z-index: 15;
+  backdrop-filter: blur(8px);
+}
+.navbtn {
+  flex: 1; border: none; background: transparent;
+  color: var(--text3); font-size: 10px; font-weight: 600;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 2px; position: relative; cursor: pointer;
+  transition: color .15s;
+}
+.navbtn.active { color: var(--main); }
+.navbtn-icon { font-size: 20px; line-height: 1; }
+.badge {
+  position: absolute; top: 6px; right: 22%;
+  background: var(--main); color: #fff;
+  font-size: 10px; border-radius: 99px;
+  min-width: 18px; height: 18px;
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 700;
+}
+
+/* ── Reorder page ── */
+.reorder-item {
+  background: var(--red-bg); border: 1px solid var(--red-border);
+  border-radius: 14px; padding: 13px 14px; margin-bottom: 8px;
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+}
+.reorder-cat-head {
+  font-size: 12px; font-weight: 600; color: var(--text3);
+  text-transform: uppercase; letter-spacing: .06em;
+  padding: 10px 0 6px;
+}
+.reorder-item-name { font-size: 15px; font-weight: 600; }
+.reorder-item-meta { color: var(--text3); font-size: 11px; margin-top: 3px; }
+.reorder-item-val  { font-size: 16px; font-weight: 700; color: var(--main); text-align: right; white-space: nowrap; }
+.reorder-item-thr  { color: var(--text3); font-size: 11px; text-align: right; margin-top: 2px; }
+.empty-state { text-align: center; padding: 48px 0; color: var(--text3); font-size: 15px; }
+.empty-state .label { font-size: 15px; font-weight: 500; }
+
+/* ── History page ── */
+.hist-date {
+  font-size: 12px; font-weight: 600; color: var(--text3);
+  padding: 10px 0 6px;
+}
+.hist-item {
+  background: var(--card2); border: 1px solid var(--border);
+  border-radius: 14px; padding: 12px 14px; margin-bottom: 8px;
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 10px;
+}
+.hist-name   { font-size: 15px; font-weight: 600; }
+.hist-change { display: flex; align-items: center; gap: 6px; margin-top: 4px; font-size: 13px; color: var(--text2); }
+.hist-old    { text-decoration: line-through; color: var(--text3); }
+.hist-new    { color: var(--main); font-weight: 700; }
+.hist-who    { color: var(--main); font-size: 13px; font-weight: 600; text-align: right; }
+.hist-time   { color: var(--text3); font-size: 11px; margin-top: 2px; text-align: right; }
+
+/* ── Responsive: full-bleed on small phones ── */
+@media (max-width: 420px) {
+  body { padding: 0; }
+  .phone { max-width: none; min-height: 100vh; border: 0; border-radius: 0; box-shadow: none; }
+  .content { height: calc(100vh - 52px); }
+  input.stock-input { width: 64px; min-width: 64px; max-width: 64px; font-size: 18px; }
+}
+</style>
+</head>
+<body>
+<div class="phone" id="app">
+
+  <!-- Top bar -->
+  <div class="topbar">
+    <div class="topbar-title">廚房庫存</div>
+    <div class="topbar-user" id="topbar-user">Hedy</div>
+  </div>
+
+  <div class="content">
+
+    <!-- ═══ HOME ═══ -->
+    <div class="page active" id="page-home">
+      <div class="page-title">今日狀況</div>
+      <div class="page-sub" id="home-sub">載入中…</div>
+
+      <!-- Low stock section (dynamic) -->
+      <div id="home-alert-section"></div>
+
+      <!-- Category quick-jump -->
+      <div class="section-label">快速盤點</div>
+      <div class="cat-grid" id="home-cat-grid"></div>
+
+      <button class="btn-main" onclick="switchTab('stocktake')">開始盤點</button>
+    </div>
+
+    <!-- ═══ STOCKTAKE ═══ -->
+    <div class="page" id="page-stocktake">
+      <div class="page-title">今日盤點</div>
+      <div class="page-sub">直接輸入剩餘數量</div>
+      <div class="cat-tabs" id="cat-tabs"></div>
+      <div id="stocktake-body"></div>
+      <div style="height:96px"></div>
+    </div>
+
+    <!-- ═══ REORDER ═══ -->
+    <div class="page" id="page-reorder">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:4px;gap:10px">
+        <div>
+          <div class="page-title">補貨清單</div>
+          <div class="page-sub" id="reorder-sub" style="margin-bottom:0">載入中…</div>
+        </div>
+        <button class="btn-outline" onclick="copyReorder()">複製清單</button>
+      </div>
+      <div id="reorder-body"></div>
+    </div>
+
+    <!-- ═══ HISTORY ═══ -->
+    <div class="page" id="page-history">
+      <div class="page-title">修改紀錄</div>
+      <div class="page-sub">最近 50 筆</div>
+      <div id="history-body"></div>
+    </div>
+
+  </div><!-- .content -->
+
+  <!-- Save bar (stocktake only) -->
+  <div class="save-bar" id="save-bar" style="display:none">
+    <button class="btn-save" id="save-btn" onclick="doSave()">儲存今日盤點</button>
+  </div>
+
+  <!-- Bottom nav -->
+  <nav class="bottomnav">
+    <button class="navbtn active" id="nav-home"      onclick="switchTab('home')">      <span class="navbtn-icon">⊞</span><span>首頁</span></button>
+    <button class="navbtn"        id="nav-stocktake" onclick="switchTab('stocktake')"> <span class="navbtn-icon">≡</span><span>盤點</span></button>
+    <button class="navbtn"        id="nav-reorder"   onclick="switchTab('reorder')">   <span class="navbtn-icon">!</span><span>補貨清單</span><span class="badge" id="reorder-badge" style="display:none"></span></button>
+    <button class="navbtn"        id="nav-history"   onclick="switchTab('history')">   <span class="navbtn-icon">◷</span><span>紀錄</span></button>
+  </nav>
+
+</div><!-- .phone -->
+
+<script>
+/* ════════════════════════════════════════
+   DATA LAYER
+   Replace INVENTORY with Firebase data
+   when connecting to backend.
+════════════════════════════════════════ */
+const CATEGORIES = ['食材類','醬料類','調味料類','飲品類','湯品類','包材類','餐具類','雜項耗材類'];
+
+const INVENTORY = {
+  '食材類': [
+    {name:'統一肉燥泡麵',  unit:'包', val:55,   reorder:70},
+    {name:'統一脆麵',      unit:'包', val:25,   reorder:20},
+    {name:'Q師傅炒意麵',   unit:'包', val:42,   reorder:40},
+    {name:'竹北米',        unit:'桶', val:0.3,  reorder:0.5},
+    {name:'金媽媽泡菜',    unit:'罐', val:1.2,  reorder:0.7},
+    {name:'起司片',        unit:'包', val:2,    reorder:1},
+    {name:'木耳',          unit:'g',  val:900,  reorder:800},
+    {name:'高麗菜',        unit:'顆', val:1,    reorder:1},
+    {name:'紅蘿蔔絲',      unit:'g',  val:700,  reorder:600},
+    {name:'菠菜',          unit:'包', val:2,    reorder:null},
+    {name:'豬肉細絲',      unit:'g',  val:1200, reorder:1000},
+    {name:'青蔥',          unit:'包', val:2,    reorder:0.5},
+    {name:'檸檬',          unit:'顆', val:4,    reorder:1},
+    {name:'九層塔',        unit:'盒', val:2,    reorder:1},
+  ],
+  '醬料類': [
+    {name:'牛頭牌沙茶醬',                   unit:'罐', val:0.5, reorder:0.3},
+    {name:'台灣辣妹辣椒醬',                 unit:'罐', val:2,   reorder:1},
+    {name:'主婦蠔油',                       unit:'瓶', val:1.5, reorder:1},
+    {name:'Tapiros魚露',                    unit:'瓶', val:2,   reorder:1},
+    {name:'白抽醬油',                       unit:'瓶', val:1,   reorder:0.5},
+    {name:'KIKKOMAN龜甲萬甘醇薄鹽醬油',    unit:'瓶', val:1,   reorder:0.5},
+  ],
+  '調味料類': [
+    {name:'烹大師煎魚調味粉', unit:'包', val:0.5, reorder:0.3},
+    {name:'味王味精',         unit:'盒', val:1,   reorder:0.5},
+    {name:'小磨坊白胡椒鹽',   unit:'盒', val:0.5, reorder:0.3},
+  ],
+  '飲品類': [
+    {name:'泰式奶茶三合一', unit:'包', val:2, reorder:3},
+    {name:'Nestea泰式奶茶', unit:'條', val:3, reorder:5},
+  ],
+  '湯品類': [
+    {name:'味王紫菜湯', unit:'盒', val:4, reorder:3},
+  ],
+  '包材類': [
+    {name:'S號袋',     unit:'包', val:5,   reorder:4},
+    {name:'M號袋',     unit:'包', val:3,   reorder:2},
+    {name:'小牛皮方盒',unit:'條', val:4,   reorder:6},
+    {name:'大牛皮方盒',unit:'條', val:5,   reorder:4},
+    {name:'飲料杯',    unit:'條', val:3,   reorder:4},
+    {name:'圓形湯碗',  unit:'條', val:6,   reorder:4},
+    {name:'辣椒醬小盒',unit:'條', val:5,   reorder:4},
+    {name:'泡菜盒子',  unit:'條', val:3,   reorder:2},
+    {name:'小料袋',    unit:'包', val:0.5, reorder:0.3},
+    {name:'1斤分料袋', unit:'包', val:1,   reorder:0.3},
+  ],
+  '餐具類': [
+    {name:'筷子', unit:'包', val:2, reorder:1},
+    {name:'湯匙', unit:'包', val:2, reorder:1},
+  ],
+  '雜項耗材類': [
+    {name:'膠帶',     unit:'捲', val:3, reorder:2},
+    {name:'廚房紙巾', unit:'捲', val:2, reorder:1},
+  ],
+};
+
+// History log (append on save)
+const HISTORY = [
+  {name:'高麗菜',    from:'3 顆',  to:'1 顆',  who:'Hedy',  time:'06/10 22:35'},
+  {name:'統一肉燥泡麵', from:'80 包', to:'55 包', who:'Jason', time:'06/10 22:33'},
+  {name:'竹北米',    from:'1 桶',  to:'0.3 桶', who:'Jason', time:'06/10 22:33'},
+  {name:'小牛皮方盒',from:'8 條',  to:'4 條',  who:'Hedy',  time:'06/10 22:31'},
+  {name:'飲料杯',    from:'6 條',  to:'3 條',  who:'Hedy',  time:'06/09 21:58'},
+  {name:'青蔥',      from:'0.5 包',to:'2 包',  who:'Jason', time:'06/09 21:55'},
+];
+
+/* ════════════════════════════════════════
+   HELPERS
+════════════════════════════════════════ */
+function isLow(item) {
+  return item.reorder !== null && Number(item.val) <= Number(item.reorder);
+}
+
+function getAllLow() {
+  const result = [];
+  CATEGORIES.forEach(cat => {
+    (INVENTORY[cat] || []).forEach(item => {
+      if (isLow(item)) result.push({...item, cat});
+    });
+  });
+  return result;
+}
+
+function getTotalItems() {
+  return CATEGORIES.reduce((s, c) => s + (INVENTORY[c] || []).length, 0);
+}
+
+/* ════════════════════════════════════════
+   RENDER: HOME
+════════════════════════════════════════ */
+function renderHome() {
+  const lowItems = getAllLow();
+  const total    = getTotalItems();
+
+  // Sub-title
+  document.getElementById('home-sub').innerHTML =
+    `共 ${total} 項・` +
+    (lowItems.length > 0
+      ? `<span style="color:var(--main);font-weight:600">${lowItems.length} 項需補貨</span>`
+      : `<span style="color:var(--green);font-weight:600">庫存充足</span>`);
+
+  // Alert section
+  const alertEl = document.getElementById('home-alert-section');
+  if (lowItems.length === 0) {
+    alertEl.innerHTML = `
+      <div class="section-card" style="border-color:#B5D5B5;background:#EEF6EE;margin-bottom:16px">
+        <div style="color:#3A6B3A">
+          <div style="font-size:15px;font-weight:700">所有品項庫存充足</div>
+          <div style="font-size:13px;color:#5A8A5A;margin-top:4px">無需補貨</div>
+        </div>
+      </div>`;
+  } else {
+    const rows = lowItems.map(item => `
+      <div class="list-line">
+        <div class="list-name">${item.name}</div>
+        <div class="list-val">${item.val} ${item.unit}<span class="list-thr"> 門檻 ${item.reorder}</span></div>
+      </div>`).join('');
+    alertEl.innerHTML = `
+      <div class="section-card alert">
+        <div class="section-title">
+          <span>需要補貨</span>
+          <span class="pill-count">${lowItems.length}</span>
+        </div>
+        ${rows}
+      </div>`;
+  }
+
+  // Category grid — pure text, no emoji, no badge when 0
+  const gridEl = document.getElementById('home-cat-grid');
+  gridEl.innerHTML = CATEGORIES.filter(cat => (INVENTORY[cat]||[]).length > 0).map(cat => {
+    const items  = INVENTORY[cat];
+    const lowCnt = items.filter(isLow).length;
+    const badge  = lowCnt > 0 ? `<div class="cat-card-badge">${lowCnt}</div>` : '';
+    const lowLine = lowCnt > 0
+      ? `<div style="color:var(--primary-dark);font-size:12px;font-weight:700;margin-top:5px">補貨 ${lowCnt} 項</div>`
+      : '';
+    return `
+      <div class="cat-card" onclick="switchTab('stocktake','${cat}')">
+        ${badge}
+        <div class="cat-card-name">${cat}</div>
+        <div class="cat-card-count">${items.length} 項</div>
+        ${lowLine}
+      </div>`;
+  }).join('');
+
+  // Nav badge
+  const badge = document.getElementById('reorder-badge');
+  if (lowItems.length > 0) {
+    badge.textContent = lowItems.length;
+    badge.style.display = 'flex';
+  } else {
+    badge.style.display = 'none';
+  }
+}
+
+/* ════════════════════════════════════════
+   RENDER: STOCKTAKE
+════════════════════════════════════════ */
+let currentCat = '食材類';
+
+function buildCatTabs() {
+  const tabs = document.getElementById('cat-tabs');
+  tabs.innerHTML = CATEGORIES.filter(c => (INVENTORY[c]||[]).length > 0).map(cat => `
+    <button class="cat-tab${cat === currentCat ? ' active' : ''}"
+      data-cat="${cat}" onclick="setActiveCat(this,'${cat}')">${cat}</button>
+  `).join('');
+}
+
+function renderStocktake(cat) {
+  const items = INVENTORY[cat] || [];
+
+  document.getElementById('stocktake-body').innerHTML =
+    `<div class="stock-section-head">${cat}・${items.length} 項</div>` +
+    items.map((item, idx) => {
+      const low     = isLow(item);
+      const thrText = item.reorder !== null ? `補貨門檻：${item.reorder} ${item.unit}` : '不設定補貨提醒';
+      return `<div class="stock-item${low ? ' low' : ''}">
+        <div class="stock-info">
+          <div class="stock-name">${item.name}</div>
+          <div class="stock-meta">${thrText}</div>
+          ${low ? '<div class="stock-warn">低於門檻</div>' : ''}
+        </div>
+        <div class="stock-right">
+          <input
+            type="number" inputmode="decimal" step="0.1" min="0"
+            class="stock-input${low ? ' low-border' : ''}"
+            value="${item.val}"
+            tabindex="${idx + 1}"
+            aria-label="${item.name} 庫存數量"
+            oninput="updateValue('${cat}',${idx},this.value)"
+          />
+          <div class="stock-unit">${item.unit}</div>
+        </div>
+      </div>`;
+    }).join('');
+}
+
+function setActiveCat(btn, cat) {
+  document.querySelectorAll('.cat-tab').forEach(t => t.classList.remove('active'));
+  btn.classList.add('active');
+  currentCat = cat;
+  renderStocktake(cat);
+  document.querySelector('.content').scrollTop = 0;
+}
+
+/* ════════════════════════════════════════
+   RENDER: REORDER
+════════════════════════════════════════ */
+function renderReorder() {
+  const lowItems = getAllLow();
+  const sub = document.getElementById('reorder-sub');
+  const body = document.getElementById('reorder-body');
+
+  if (lowItems.length === 0) {
+    sub.textContent = '目前無需補貨';
+    body.innerHTML = `
+      <div class="empty-state">
+        <div class="label">所有品項庫存充足</div>
+      </div>`;
+    return;
+  }
+
+  sub.textContent = `共 ${lowItems.length} 項需補貨`;
+
+  // Group by category (preserve CATEGORIES order)
+  const byCat = {};
+  lowItems.forEach(item => {
+    if (!byCat[item.cat]) byCat[item.cat] = [];
+    byCat[item.cat].push(item);
+  });
+
+  body.innerHTML = CATEGORIES.filter(c => byCat[c]).map(cat => `
+    <div class="reorder-cat-head">${cat}</div>
+    ${byCat[cat].map(item => `
+      <div class="reorder-item">
+        <div>
+          <div class="reorder-item-name">${item.name}</div>
+          <div class="reorder-item-meta">門檻：${item.reorder} ${item.unit}</div>
+        </div>
+        <div>
+          <div class="reorder-item-val">${item.val} ${item.unit}</div>
+          <div class="reorder-item-thr">現有數量</div>
+        </div>
+      </div>`).join('')}
+  `).join('');
+}
+
+function copyReorder() {
+  const lowItems = getAllLow();
+  if (!lowItems.length) { alert('目前無需補貨'); return; }
+  const now = new Date().toLocaleDateString('zh-TW');
+  const byCat = {};
+  lowItems.forEach(i => { (byCat[i.cat] = byCat[i.cat] || []).push(i); });
+  const lines = ['📋 補貨清單', now, ''];
+  CATEGORIES.filter(c => byCat[c]).forEach(cat => {
+    lines.push(`【${cat}】`);
+    byCat[cat].forEach(i => lines.push(`・${i.name}（現有 ${i.val} ${i.unit}，門檻 ${i.reorder} ${i.unit}）`));
+    lines.push('');
+  });
+  navigator.clipboard?.writeText(lines.join('\n'))
+    .then(() => alert('補貨清單已複製到剪貼簿 ✓'))
+    .catch(() => alert('複製失敗，請手動截圖'));
+}
+
+/* ════════════════════════════════════════
+   RENDER: HISTORY
+════════════════════════════════════════ */
+function renderHistory() {
+  if (!HISTORY.length) {
+    document.getElementById('history-body').innerHTML = `
+      <div class="empty-state"><div class="label">尚無修改紀錄</div></div>`;
+    return;
+  }
+  // Group by date prefix (MM/DD)
+  const groups = {};
+  HISTORY.forEach(h => {
+    const date = h.time.split(' ')[0];
+    (groups[date] = groups[date] || []).push(h);
+  });
+  document.getElementById('history-body').innerHTML = Object.entries(groups).map(([date, records]) => `
+    <div class="hist-date">${date}</div>
+    ${records.map(h => `
+      <div class="hist-item">
+        <div>
+          <div class="hist-name">${h.name}</div>
+          <div class="hist-change">
+            <span class="hist-old">${h.from}</span>
+            <span>→</span>
+            <span class="hist-new">${h.to}</span>
+          </div>
+        </div>
+        <div>
+          <div class="hist-who">${h.who}</div>
+          <div class="hist-time">${h.time.split(' ')[1]}</div>
+        </div>
+      </div>`).join('')}
+  `).join('');
+}
+
+/* ════════════════════════════════════════
+   DATA UPDATE
+════════════════════════════════════════ */
+function updateValue(cat, index, rawValue) {
+  const num = rawValue === '' ? 0 : Number(rawValue);
+  if (isNaN(num)) return;
+  const item = INVENTORY[cat][index];
+  item.val = num;
+
+  // Re-evaluate low state for this row without full re-render
+  const rows = document.querySelectorAll('.stock-item');
+  const row  = rows[index];
+  if (row) {
+    const low = isLow(item);
+    row.classList.toggle('low', low);
+    const inp = row.querySelector('input');
+    if (inp) inp.classList.toggle('low-border', low);
+    const warnEl = row.querySelector('.stock-warn');
+    if (low && !warnEl) {
+      const info = row.querySelector('.stock-info');
+      const d = document.createElement('div');
+      d.className = 'stock-warn'; d.textContent = '低於門檻';
+      info.appendChild(d);
+    } else if (!low && warnEl) {
+      warnEl.remove();
+    }
+  }
+
+  // Update derived views
+  renderHome();
+  renderReorder();
+}
+
+/* ════════════════════════════════════════
+   SAVE
+════════════════════════════════════════ */
+function doSave() {
+  // In production: batch-write changes to Firebase here
+  const btn = document.getElementById('save-btn');
+  btn.textContent = '✓ 已儲存盤點';
+  btn.classList.add('saved');
+  setTimeout(() => {
+    btn.textContent = '儲存今日盤點';
+    btn.classList.remove('saved');
+  }, 2200);
+}
+
+/* ════════════════════════════════════════
+   TAB ROUTING
+════════════════════════════════════════ */
+function switchTab(tab, cat) {
+  if (cat) currentCat = cat;
+  ['home','stocktake','reorder','history'].forEach(t => {
+    document.getElementById('page-' + t).classList.toggle('active', t === tab);
+    document.getElementById('nav-'  + t).classList.toggle('active', t === tab);
+  });
+  document.getElementById('save-bar').style.display = tab === 'stocktake' ? 'block' : 'none';
+
+  if (tab === 'stocktake') {
+    // Sync active tab button
+    document.querySelectorAll('.cat-tab').forEach(b =>
+      b.classList.toggle('active', b.dataset.cat === currentCat));
+    renderStocktake(currentCat);
+  }
+  if (tab === 'reorder') renderReorder();
+  if (tab === 'history') renderHistory();
+  document.querySelector('.content').scrollTop = 0;
+}
+
+/* ════════════════════════════════════════
+   INIT
+════════════════════════════════════════ */
+buildCatTabs();
+renderHome();
+renderStocktake(currentCat);
+renderReorder();
+renderHistory();
+</script>
+</body>
+</html>
