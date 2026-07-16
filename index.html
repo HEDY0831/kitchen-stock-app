@@ -223,6 +223,15 @@ input.stock-input::-webkit-inner-spin-button,
 input.stock-input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
 input.stock-input.low-border { border-color: var(--red-border); }
 .stock-unit { color: var(--text2); font-size: 14px; font-weight: 600; white-space: nowrap; min-width: 20px; }
+.portion-unit {
+  color: var(--main);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.2;
+  text-align: right;
+  white-space: nowrap;
+  min-width: 54px;
+}
 .receive-current {
   color: var(--text3);
   font-size: 12px;
@@ -292,12 +301,50 @@ input.stock-input.low-border { border-color: var(--red-border); }
   border-radius: 14px; padding: 13px 14px; margin-bottom: 8px;
   display: flex; align-items: center; justify-content: space-between; gap: 10px;
 }
+.reorder-item.checked {
+  background: var(--card2);
+  border-color: var(--border);
+}
+.reorder-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.reorder-check {
+  width: 24px;
+  height: 24px;
+  min-width: 24px;
+  border-radius: 7px;
+  border: 2px solid var(--main);
+  background: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+}
+.reorder-check:checked {
+  background: var(--main);
+}
+.reorder-check:checked::after {
+  content: '✓';
+  font-size: 16px;
+  font-weight: 800;
+  line-height: 1;
+}
 .reorder-cat-head {
   font-size: 12px; font-weight: 600; color: var(--text3);
   text-transform: uppercase; letter-spacing: .06em;
   padding: 10px 0 6px;
 }
 .reorder-item-name { font-size: 15px; font-weight: 600; }
+.reorder-item.checked .reorder-item-name {
+  color: var(--text3);
+  text-decoration: line-through;
+}
 .reorder-item-meta { color: var(--text3); font-size: 11px; margin-top: 3px; }
 .reorder-item-val  { font-size: 16px; font-weight: 700; color: var(--main); text-align: right; white-space: nowrap; }
 .reorder-item-thr  { color: var(--text3); font-size: 11px; text-align: right; margin-top: 2px; }
@@ -444,6 +491,7 @@ input.stock-input.low-border { border-color: var(--red-border); }
     <div class="page" id="page-receive">
       <div class="page-title">進貨</div>
       <div class="page-sub">輸入本次進貨數量，儲存後會自動加到目前庫存</div>
+      <div id="pending-receive-section"></div>
       <div class="cat-tabs" id="receive-cat-tabs"></div>
       <div id="receive-body"></div>
       <div style="height:96px"></div>
@@ -516,7 +564,25 @@ const db  = getFirestore(app);
 /* ════════════════════════════════════════
    CONSTANTS
 ════════════════════════════════════════ */
-const CATEGORIES = ['食材類','醬料類','調味料類','飲品類','湯品類','包材類','餐具類','雜項耗材類'];
+const CATEGORIES = ['食材類','生鮮蔬食','醬料類','調味料類','飲品類','湯品類','包材類','餐具類','雜項耗材類'];
+const PORTION_GRAMS = {
+  '木耳': 14,
+  '豬肉細絲': 22,
+};
+const FRESH_PRODUCE_ORDER = {
+  '木耳': 1,
+  '豬肉細絲': 2,
+  '紅蘿蔔絲': 3,
+  '高麗菜': 4,
+  '青蔥': 5,
+  '檸檬': 6,
+  '九層塔': 7,
+  '菠菜': 8,
+};
+const ITEM_VALUE_FIXES = {
+  '蒜酥': { currentStock: 0.6, reorderPoint: 0.3 },
+  '船麵醬': { currentStock: 15, reorderPoint: 3 },
+};
 
 // Seed data — written to Firestore on first load if collection is empty
 const SEED_ITEMS = [
@@ -526,25 +592,30 @@ const SEED_ITEMS = [
   {name:'竹北米',        category:'食材類',  unit:'桶', currentStock:0, reorderPoint:0.5,  sortOrder:4},
   {name:'金媽媽泡菜',    category:'食材類',  unit:'罐', currentStock:0, reorderPoint:0.7,  sortOrder:5},
   {name:'起司片',        category:'食材類',  unit:'包', currentStock:0, reorderPoint:1,    sortOrder:6},
-  {name:'木耳',          category:'食材類',  unit:'g',  currentStock:0, reorderPoint:800,  sortOrder:7},
-  {name:'高麗菜',        category:'食材類',  unit:'顆', currentStock:0, reorderPoint:1,    sortOrder:8},
-  {name:'紅蘿蔔絲',      category:'食材類',  unit:'g',  currentStock:0, reorderPoint:600,  sortOrder:9},
-  {name:'菠菜',          category:'食材類',  unit:'包', currentStock:0, reorderPoint:null, sortOrder:10},
-  {name:'豬肉細絲',      category:'食材類',  unit:'g',  currentStock:0, reorderPoint:1000, sortOrder:11},
-  {name:'青蔥',          category:'食材類',  unit:'包', currentStock:0, reorderPoint:0.5,  sortOrder:12},
-  {name:'檸檬',          category:'食材類',  unit:'顆', currentStock:0, reorderPoint:1,    sortOrder:13},
-  {name:'九層塔',        category:'食材類',  unit:'盒', currentStock:0, reorderPoint:1,    sortOrder:14},
+  {name:'木耳',          category:'生鮮蔬食', unit:'g',  currentStock:0, reorderPoint:800,  sortOrder:1},
+  {name:'豬肉細絲',      category:'生鮮蔬食', unit:'g',  currentStock:0, reorderPoint:1000, sortOrder:2},
+  {name:'紅蘿蔔絲',      category:'生鮮蔬食', unit:'g',  currentStock:0, reorderPoint:600,  sortOrder:3},
+  {name:'高麗菜',        category:'生鮮蔬食', unit:'顆', currentStock:0, reorderPoint:1,    sortOrder:4},
+  {name:'青蔥',          category:'生鮮蔬食', unit:'包', currentStock:0, reorderPoint:0.5,  sortOrder:5},
+  {name:'檸檬',          category:'生鮮蔬食', unit:'顆', currentStock:0, reorderPoint:1,    sortOrder:6},
+  {name:'九層塔',        category:'生鮮蔬食', unit:'盒', currentStock:0, reorderPoint:1,    sortOrder:7},
+  {name:'菠菜',          category:'生鮮蔬食', unit:'包', currentStock:0, reorderPoint:null, sortOrder:8},
+  {name:'蒜酥',          category:'食材類',  unit:'包', currentStock:0.6, reorderPoint:0.3,  sortOrder:15},
   {name:'牛頭牌沙茶醬',              category:'醬料類', unit:'罐', currentStock:0, reorderPoint:0.3, sortOrder:1},
   {name:'台灣辣妹辣椒醬',            category:'醬料類', unit:'罐', currentStock:0, reorderPoint:1,   sortOrder:2},
   {name:'主婦蠔油',                  category:'醬料類', unit:'瓶', currentStock:0, reorderPoint:1,   sortOrder:3},
   {name:'Tapiros魚露',               category:'醬料類', unit:'瓶', currentStock:0, reorderPoint:1,   sortOrder:4},
   {name:'白抽醬油',                  category:'醬料類', unit:'瓶', currentStock:0, reorderPoint:0.5, sortOrder:5},
   {name:'KIKKOMAN龜甲萬甘醇薄鹽醬油',category:'醬料類', unit:'瓶', currentStock:0, reorderPoint:0.5, sortOrder:6},
+  {name:'船麵醬',                    category:'醬料類', unit:'罐', currentStock:15, reorderPoint:3,   sortOrder:7},
   {name:'烹大師煎魚調味粉', category:'調味料類', unit:'包', currentStock:0, reorderPoint:0.3, sortOrder:1},
   {name:'味王味精',         category:'調味料類', unit:'盒', currentStock:0, reorderPoint:0.5, sortOrder:2},
   {name:'小磨坊白胡椒鹽',   category:'調味料類', unit:'盒', currentStock:0, reorderPoint:0.3, sortOrder:3},
+  {name:'鹽巴',             category:'調味料類', unit:'包', currentStock:0.3, reorderPoint:0.2, sortOrder:4},
   {name:'泰式奶茶三合一', category:'飲品類', unit:'包', currentStock:0, reorderPoint:3, sortOrder:1},
   {name:'Nestea泰式奶茶', category:'飲品類', unit:'條', currentStock:0, reorderPoint:5, sortOrder:2},
+  {name:'金萱紅茶包', category:'飲品類', unit:'包', currentStock:0.5, reorderPoint:0.2, sortOrder:3},
+  {name:'桂花綠茶包', category:'飲品類', unit:'包', currentStock:0.5, reorderPoint:0.2, sortOrder:4},
   {name:'味王紫菜湯', category:'湯品類', unit:'盒', currentStock:0, reorderPoint:3, sortOrder:1},
   {name:'S號袋',      category:'包材類', unit:'包', currentStock:0, reorderPoint:4,   sortOrder:1},
   {name:'M號袋',      category:'包材類', unit:'包', currentStock:0, reorderPoint:2,   sortOrder:2},
@@ -599,19 +670,56 @@ window.openUserPicker = function(force = false) {
 ════════════════════════════════════════ */
 async function seedIfEmpty() {
   const snap = await getDocs(collection(db, 'inventory_items'));
-  const existingKeys = new Set();
+  const existingNames = new Set();
+  const updates = [];
+
   snap.forEach(d => {
     const data = d.data();
-    existingKeys.add(`${data.category}::${data.name}`);
+    existingNames.add(data.name);
+
+    const freshSortOrder = FRESH_PRODUCE_ORDER[data.name];
+    const valueFix = ITEM_VALUE_FIXES[data.name];
+    const updateData = {};
+
+    if (
+      freshSortOrder &&
+      (data.category !== '生鮮蔬食' || data.sortOrder !== freshSortOrder)
+    ) {
+      updateData.category = '生鮮蔬食';
+      updateData.sortOrder = freshSortOrder;
+    }
+
+    if (valueFix) {
+      if (data.currentStock !== valueFix.currentStock) {
+        updateData.currentStock = valueFix.currentStock;
+      }
+      if (data.reorderPoint !== valueFix.reorderPoint) {
+        updateData.reorderPoint = valueFix.reorderPoint;
+      }
+    }
+
+    if (Object.keys(updateData).length > 0) {
+      updates.push({
+        ref: doc(db, 'inventory_items', d.id),
+        data: {
+          ...updateData,
+          updatedAt: serverTimestamp(),
+          updatedBy: 'system',
+        },
+      });
+    }
   });
 
   const missingItems = SEED_ITEMS.filter(item =>
-    !existingKeys.has(`${item.category}::${item.name}`)
+    !existingNames.has(item.name)
   );
 
-  if (missingItems.length === 0) return;
+  if (missingItems.length === 0 && updates.length === 0) return;
 
   const batch = writeBatch(db);
+  updates.forEach(update => {
+    batch.update(update.ref, update.data);
+  });
   missingItems.forEach(item => {
     const ref = doc(collection(db, 'inventory_items'));
     batch.set(ref, { ...item, updatedAt: serverTimestamp(), updatedBy: 'system' });
@@ -713,6 +821,49 @@ function getTotalItems() {
   return CATEGORIES.reduce((s, c) => s + (INVENTORY[c] || []).length, 0);
 }
 
+function getReorderCheckedMap() {
+  try {
+    return JSON.parse(localStorage.getItem('reorder_checked') || '{}') || {};
+  } catch {
+    return {};
+  }
+}
+
+function setReorderChecked(itemId, checked) {
+  const checkedMap = getReorderCheckedMap();
+  if (checked) {
+    checkedMap[itemId] = true;
+  } else {
+    delete checkedMap[itemId];
+  }
+  localStorage.setItem('reorder_checked', JSON.stringify(checkedMap));
+}
+
+function getPortionGrams(item) {
+  return PORTION_GRAMS[item.name] || null;
+}
+
+function formatPortionCount(value, gramsPerPortion) {
+  if (!gramsPerPortion) return '';
+  const portions = Number(value || 0) / gramsPerPortion;
+  const rounded = Math.round(portions * 10) / 10;
+  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
+}
+
+function renderPortionText(item, value) {
+  const gramsPerPortion = getPortionGrams(item);
+  if (!gramsPerPortion) return '';
+  return `約 ${formatPortionCount(value, gramsPerPortion)} 份`;
+}
+
+function renderPortionBadge(item, value, className = 'portion-unit', showPortionText = true) {
+  const portionText = renderPortionText(item, value);
+  const hasPortionUnit = !!getPortionGrams(item);
+  return hasPortionUnit
+    ? `<div class="${className}" data-portion-for="${item.id}">${showPortionText ? portionText : ''}</div>`
+    : '';
+}
+
 function refreshAllViews() {
   renderHome();
   renderReorder();
@@ -723,6 +874,7 @@ function refreshAllViews() {
   }
   const receivePage = document.getElementById('page-receive');
   if (receivePage.classList.contains('active')) {
+    renderPendingReceive();
     buildReceiveCatTabs();
     renderReceive(currentReceiveCat);
   }
@@ -814,6 +966,7 @@ function renderStocktake(cat) {
       const low     = isLow(item);
       const thrText = item.reorder !== null && item.reorder !== undefined
         ? `補貨門檻：${item.reorder} ${item.unit}` : '不設定補貨提醒';
+      const portionBadge = renderPortionBadge(item, item.val);
       return `<div class="stock-item${low ? ' low' : ''}" data-id="${item.id}">
         <div class="stock-info">
           <div class="stock-name">${item.name}</div>
@@ -821,6 +974,7 @@ function renderStocktake(cat) {
           ${low ? '<div class="stock-warn">低於門檻</div>' : ''}
         </div>
         <div class="stock-right">
+          ${portionBadge}
           <input
             type="number" inputmode="decimal" step="0.1" min="0"
             class="stock-input${low ? ' low-border' : ''}"
@@ -878,6 +1032,8 @@ window._onStockInput = function(input) {
     } else if (!low && warnEl) {
       warnEl.remove();
     }
+    const portionEl = row.querySelector(`[data-portion-for="${id}"]`);
+    if (portionEl) portionEl.textContent = renderPortionText(item, num);
   }
 
   renderHome();
@@ -927,30 +1083,55 @@ function renderReceive(cat) {
   const items = INVENTORY[cat] || [];
   document.getElementById('receive-body').innerHTML =
     `<div class="stock-section-head">${cat}・${items.length} 項</div>` +
-    items.map((item, idx) => {
-      const low = isLow(item);
-      const thrText = item.reorder !== null && item.reorder !== undefined
-        ? `補貨門檻：${item.reorder} ${item.unit}` : '不設定補貨提醒';
-      return `<div class="stock-item${low ? ' low' : ''}" data-id="${item.id}">
-        <div class="stock-info">
-          <div class="stock-name">${item.name}</div>
-          <div class="receive-current">目前庫存：${item.val} ${item.unit}</div>
-          <div class="stock-meta">${thrText}</div>
-        </div>
-        <div class="stock-right">
-          <input
-            type="number" inputmode="decimal" step="0.1" min="0"
-            class="receive-input"
-            placeholder="0"
-            data-id="${item.id}"
-            data-cat="${cat}"
-            data-idx="${idx}"
-            aria-label="${item.name} 進貨數量"
-          />
-          <div class="stock-unit">${item.unit}</div>
-        </div>
-      </div>`;
-    }).join('');
+    items.map((item, idx) => renderReceiveItem(item, cat, idx)).join('');
+}
+
+function renderReceiveItem(item, cat, idx) {
+  const low = isLow(item);
+  const thrText = item.reorder !== null && item.reorder !== undefined
+    ? `補貨門檻：${item.reorder} ${item.unit}` : '不設定補貨提醒';
+  const portionText = renderPortionText(item, item.val);
+  const currentText = `目前庫存：${item.val} ${item.unit}${portionText ? `（${portionText}）` : ''}`;
+  const portionBadge = renderPortionBadge(item, 0, 'portion-unit receive-portion', false);
+  return `<div class="stock-item${low ? ' low' : ''}" data-id="${item.id}">
+    <div class="stock-info">
+      <div class="stock-name">${item.name}</div>
+      <div class="receive-current">${currentText}</div>
+      <div class="stock-meta">${thrText}</div>
+    </div>
+    <div class="stock-right">
+      ${portionBadge}
+      <input
+        type="number" inputmode="decimal" step="0.1" min="0"
+        class="receive-input"
+        placeholder="0"
+        data-id="${item.id}"
+        data-cat="${cat}"
+        data-idx="${idx}"
+        aria-label="${item.name} 進貨數量"
+        oninput="window._onReceiveInput(this)"
+      />
+      <div class="stock-unit">${item.unit}</div>
+    </div>
+  </div>`;
+}
+
+function renderPendingReceive() {
+  const section = document.getElementById('pending-receive-section');
+  const lowItems = getAllLow();
+
+  if (!lowItems.length) {
+    section.innerHTML = '';
+    return;
+  }
+
+  section.innerHTML = `
+    <div class="stock-section-head">待進貨・${lowItems.length} 項</div>
+    ${lowItems.map(item => {
+      const idx = (INVENTORY[item.cat] || []).findIndex(i => i.id === item.id);
+      return renderReceiveItem(item, item.cat, idx);
+    }).join('')}
+    <div style="height:8px"></div>`;
 }
 
 window._setActiveReceiveCat = function(btn, cat) {
@@ -961,10 +1142,25 @@ window._setActiveReceiveCat = function(btn, cat) {
   document.querySelector('.content').scrollTop = 0;
 };
 
+window._onReceiveInput = function(input) {
+  const cat = input.dataset.cat;
+  const idx = parseInt(input.dataset.idx);
+  const item = (INVENTORY[cat] || [])[idx];
+  if (!item) return;
+
+  const amount = input.value === '' ? 0 : Number(input.value);
+  if (isNaN(amount)) return;
+
+  const row = input.closest('.stock-item');
+  const portionEl = row?.querySelector(`[data-portion-for="${input.dataset.id}"]`);
+  if (portionEl) portionEl.textContent = renderPortionText(item, amount);
+};
+
 window.saveReceive = async function() {
   const btn = document.getElementById('receive-save-btn');
-  const inputs = Array.from(document.querySelectorAll('#receive-body .receive-input'));
+  const inputs = Array.from(document.querySelectorAll('#page-receive .receive-input'));
   const changes = [];
+  const byId = {};
 
   inputs.forEach(input => {
     const amount = input.value === '' ? 0 : Number(input.value);
@@ -977,10 +1173,16 @@ window.saveReceive = async function() {
 
     if (!item || item.id !== id) return;
 
-    const oldVal = Number(item.val) || 0;
-    const newVal = oldVal + amount;
+    if (!byId[id]) {
+      byId[id] = { item, id, oldVal: Number(item.val) || 0, amount: 0, inputs: [] };
+    }
+    byId[id].amount += amount;
+    byId[id].inputs.push(input);
+  });
 
-    changes.push({ item, id, oldVal, amount, newVal, input });
+  Object.values(byId).forEach(change => {
+    change.newVal = change.oldVal + change.amount;
+    changes.push(change);
   });
 
   if (!changes.length) {
@@ -1017,6 +1219,7 @@ window.saveReceive = async function() {
     btn.classList.add('saved');
     renderHome();
     renderReorder();
+    renderPendingReceive();
     renderReceive(currentReceiveCat);
 
     setTimeout(() => {
@@ -1057,19 +1260,37 @@ function renderReorder() {
 
   body.innerHTML = CATEGORIES.filter(c => byCat[c]).map(cat => `
     <div class="reorder-cat-head">${cat}</div>
-    ${byCat[cat].map(item => `
-      <div class="reorder-item">
-        <div>
-          <div class="reorder-item-name">${item.name}</div>
-          <div class="reorder-item-meta">門檻：${item.reorder} ${item.unit}</div>
+    ${byCat[cat].map(item => {
+      const checked = !!getReorderCheckedMap()[item.id];
+      return `
+      <div class="reorder-item${checked ? ' checked' : ''}" data-id="${item.id}">
+        <div class="reorder-left">
+          <input
+            type="checkbox"
+            class="reorder-check"
+            aria-label="${item.name} 已補貨"
+            data-id="${item.id}"
+            onchange="window._onReorderCheck(this)"
+            ${checked ? 'checked' : ''}
+          />
+          <div>
+            <div class="reorder-item-name">${item.name}</div>
+            <div class="reorder-item-meta">門檻：${item.reorder} ${item.unit}</div>
+          </div>
         </div>
         <div>
           <div class="reorder-item-val">${item.val} ${item.unit}</div>
           <div class="reorder-item-thr">現有數量</div>
         </div>
-      </div>`).join('')}
+      </div>`;
+    }).join('')}
   `).join('');
 }
+
+window._onReorderCheck = function(input) {
+  setReorderChecked(input.dataset.id, input.checked);
+  input.closest('.reorder-item')?.classList.toggle('checked', input.checked);
+};
 
 window.copyReorder = function() {
   const lowItems = getAllLow();
@@ -1158,6 +1379,7 @@ window.switchTab = function(tab, cat) {
     renderStocktake(currentCat);
   }
   if (tab === 'receive') {
+    renderPendingReceive();
     buildReceiveCatTabs();
     renderReceive(currentReceiveCat);
   }
