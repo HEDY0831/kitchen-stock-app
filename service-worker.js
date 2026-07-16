@@ -1,4 +1,4 @@
-const CACHE_NAME = 'kitchen-stock-v1';
+const CACHE_NAME = 'kitchen-stock-v2';
 
 const ASSETS = [
   '/kitchen-stock-app/',
