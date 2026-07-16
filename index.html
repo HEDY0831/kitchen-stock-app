@@ -672,10 +672,37 @@ async function seedIfEmpty() {
   const snap = await getDocs(collection(db, 'inventory_items'));
   const existingNames = new Set();
   const updates = [];
+  const deletes = [];
+  const docsByName = {};
 
   snap.forEach(d => {
     const data = d.data();
     existingNames.add(data.name);
+    (docsByName[data.name] = docsByName[data.name] || []).push({ doc: d, data });
+  });
+
+  Object.entries(FRESH_PRODUCE_ORDER).forEach(([name, sortOrder]) => {
+    const matches = docsByName[name] || [];
+    if (matches.length <= 1) return;
+
+    const keeper = matches.reduce((best, current) => {
+      const bestStock = Number(best.data.currentStock) || 0;
+      const currentStock = Number(current.data.currentStock) || 0;
+      if (currentStock !== bestStock) return currentStock > bestStock ? current : best;
+      if (current.data.category === '生鮮蔬食' && best.data.category !== '生鮮蔬食') return current;
+      return best;
+    });
+
+    matches.forEach(match => {
+      if (match.doc.id !== keeper.doc.id) {
+        deletes.push(doc(db, 'inventory_items', match.doc.id));
+      }
+    });
+  });
+
+  snap.forEach(d => {
+    if (deletes.some(ref => ref.id === d.id)) return;
+    const data = d.data();
 
     const freshSortOrder = FRESH_PRODUCE_ORDER[data.name];
     const valueFix = ITEM_VALUE_FIXES[data.name];
@@ -714,9 +741,12 @@ async function seedIfEmpty() {
     !existingNames.has(item.name)
   );
 
-  if (missingItems.length === 0 && updates.length === 0) return;
+  if (missingItems.length === 0 && updates.length === 0 && deletes.length === 0) return;
 
   const batch = writeBatch(db);
+  deletes.forEach(ref => {
+    batch.delete(ref);
+  });
   updates.forEach(update => {
     batch.update(update.ref, update.data);
   });
